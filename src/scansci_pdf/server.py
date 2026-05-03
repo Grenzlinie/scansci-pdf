@@ -58,6 +58,7 @@ def scansci_pdf_batch_download(
     use_vpnsci: bool = False,
     batch_id: str | None = None,
     resume: bool = True,
+    ctx: Any = None,
 ) -> str:
     """Download multiple papers by DOI or arXiv ID.
 
@@ -78,6 +79,11 @@ def scansci_pdf_batch_download(
         src = result.get("source", "?")
         status = "OK" if ok else "FAIL"
         _log.info(f"   [{current}/{total}] {status} {src} {identifier}")
+        if ctx and hasattr(ctx, "report_progress"):
+            try:
+                ctx.report_progress(current, total)
+            except Exception:
+                pass
 
     result = batch_download(
         identifiers, output_dir,
@@ -246,6 +252,7 @@ def scansci_pdf_import_bib(
     output_dir: str | None = None,
     scihub_enabled: bool | None = None,
     use_tor: bool = False,
+    ctx: Any = None,
 ) -> str:
     """Import DOIs from a .bib file and download all papers.
 
@@ -267,6 +274,11 @@ def scansci_pdf_import_bib(
         src = result.get("source", "?")
         status = "OK" if ok else "FAIL"
         _log.info(f"   [{current}/{total}] {status} {src} {identifier}")
+        if ctx and hasattr(ctx, "report_progress"):
+            try:
+                ctx.report_progress(current, total)
+            except Exception:
+                pass
 
     result = batch_download(identifiers, output_dir, scihub_enabled=scihub_enabled, use_tor=use_tor, progress_callback=_bib_progress)
     result["bib_entries"] = len(entries)
@@ -492,6 +504,7 @@ def scansci_pdf_resolve_and_download(
     use_tor: bool = False,
     use_vpnsci: bool = False,
     resolve_titles: bool = True,
+    ctx: Any = None,
 ) -> str:
     """Parse paper list → fix DOI format → resolve missing DOIs by title search → batch download.
 
@@ -548,6 +561,11 @@ def scansci_pdf_resolve_and_download(
         src = result.get("source", "?")
         status = "OK" if ok else "FAIL"
         _log.info(f"   [{current}/{total}] {status} {src} {identifier}")
+        if ctx and hasattr(ctx, "report_progress"):
+            try:
+                ctx.report_progress(current, total)
+            except Exception:
+                pass
 
     dl_result = batch_download(
         unique_dois, output_dir,
