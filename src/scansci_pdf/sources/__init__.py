@@ -575,7 +575,54 @@ def batch_download(
             "batch_id": batch_id,
         }
 
-    log.info(f"Batch {batch_id}: downloading {len(pending_identifiers)} items ({skipped_completed} skipped)")
+    # Pre-validate DOIs concurrently
+    from ..identifiers import validate_doi
+    valid_identifiers: list[str] = []
+    invalid_results: list[dict[str, Any]] = []
+    arxiv_ids = [i for i in pending_identifiers if is_arxiv_identifier(i)]
+    doi_ids = [i for i in pending_identifiers if not is_arxiv_identifier(i)]
+
+    if doi_ids:
+        log.info(f"Batch {batch_id}: validating {len(doi_ids)} DOIs...")
+        with ThreadPoolExecutor(max_workers=min(10, len(doi_ids))) as pool:
+            futures = {pool.submit(validate_doi, normalize_doi(i)): i for i in doi_ids}
+            for future in as_completed(futures, timeout=60):
+                ident = futures[future]
+                try:
+                    valid, msg = future.result()
+                except Exception:
+                    valid, msg = True, "validation error"
+                if valid:
+                    valid_identifiers.append(ident)
+                else:
+                    log.info(f"   SKIP {ident}: {msg}")
+                    r = fail(ident, f"Invalid DOI: {msg}")
+                    invalid_results.append(r)
+                    _save_progress(batch_id, ident, r)
+
+    valid_identifiers.extend(arxiv_ids)
+    pending_identifiers = valid_identifiers
+
+    if invalid_results:
+        log.info(f"Batch {batch_id}: {len(invalid_results)} invalid DOIs skipped")
+
+    if not pending_identifiers:
+        log.info("No valid identifiers to download")
+        all_results = [completed_map.get(i) or fail(i, "invalid") for i in unique_identifiers]
+        succeeded = sum(1 for r in all_results if r and r.get("success"))
+        return {
+            "total": len(identifiers),
+            "unique": len(unique_identifiers),
+            "skipped_duplicates": skipped_duplicates,
+            "skipped_completed": skipped_completed,
+            "skipped_invalid": len(invalid_results),
+            "succeeded": succeeded,
+            "failed": len(unique_identifiers) - succeeded,
+            "results": all_results,
+            "batch_id": batch_id,
+        }
+
+    log.info(f"Batch {batch_id}: downloading {len(pending_identifiers)} items ({skipped_completed} skipped, {len(invalid_results)} invalid)")
 
     delay_lock = threading.Lock()
     last_download_time = [0.0]
@@ -624,11 +671,16 @@ def batch_download(
         if r is None:
             results[i] = fail(pending_identifiers[i], "timeout or incomplete")
 
+    # Reload progress to include newly-saved invalid results
+    final_map = _load_progress(batch_id)
+
     # Merge completed_map with new results
     all_results = []
     new_idx = 0
     for ident in unique_identifiers:
-        if ident in completed_map:
+        if ident in final_map:
+            all_results.append(final_map[ident])
+        elif ident in completed_map:
             all_results.append(completed_map[ident])
         else:
             all_results.append(results[new_idx])
@@ -646,6 +698,7 @@ def batch_download(
         "unique": len(unique_identifiers),
         "skipped_duplicates": skipped_duplicates,
         "skipped_completed": skipped_completed,
+        "skipped_invalid": len(invalid_results),
         "succeeded": succeeded,
         "failed": len(failed_dois),
         "results": all_results,
