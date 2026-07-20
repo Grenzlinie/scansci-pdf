@@ -168,6 +168,7 @@ scansci-pdf get 10.1016/j.neunet.2026.108582
 | 搜索支持的学校 | `scansci-pdf schools 清华` |
 | 配置学校 WebVPN | `scansci-pdf setup 学校名称` |
 | 浏览器登录出版商 | `scansci-pdf login --url 出版商网址` |
+| 只通过 EZProxy 下载 | `scansci-pdf get DOI --ezproxy-only` |
 | 配置 Elsevier API | `scansci-pdf elsevier-setup --api-key YOUR_KEY` |
 | 查看或修改配置 | `scansci-pdf config-cmd` |
 | 启动 Web UI | `scansci-pdf web --port 8080` |
@@ -179,6 +180,28 @@ scansci-pdf get 10.1016/j.neunet.2026.108582
 scansci-pdf config-cmd output_dir D:/papers
 scansci-pdf config-cmd network_proxy socks5://127.0.0.1:1080
 ```
+
+### HKU EZProxy 直达下载
+
+配置 HKU EZProxy，并在 ScanSci 打开的可见 Chromium 中登录一次：
+
+```bash
+scansci-pdf config-cmd ezproxy_enabled true
+scansci-pdf config-cmd ezproxy_login_url 'https://eproxy.lib.hku.hk/login?url={url}'
+scansci-pdf login --login-type ezproxy --manual-confirm
+```
+
+之后可以跳过 OA、出版社直连及其他机构来源，直接复用缓存登录态：
+
+```bash
+scansci-pdf get '10.1016/j.actamat.2026.122519' --output ./papers --ezproxy-only
+# 等价：--strategy ezproxy_only
+```
+
+文章页或 PDF 页出现 `Processing Verification`、CAPTCHA 或其他机器人验证时，
+Chromium 会保持打开。交互式终端达到等待窗口后可直接按 Enter 继续等待，或输入
+`skip` 退出；MCP 和其他非交互调用达到超时后会失败，不会永久占用任务。
+机器人验证仍可能需要用户在窗口中手动完成。
 
 ---
 
@@ -243,6 +266,9 @@ scansci-pdf run --mode streamable_http --host 0.0.0.0 --port 8000
 | `elsevier_insttoken` | 空 | Elsevier institutional token，可选 |
 | `browser_headless` | `false` | 浏览器是否无头运行 |
 | `browser_humanize` | `true` | 浏览器人性化操作 |
+| `ezproxy_enabled` | `false` | 启用 EZProxy 机构访问 |
+| `ezproxy_login_url` | 空 | EZProxy 登录 URL 模板，必须包含 `{url}` |
+| `ezproxy_challenge_timeout` | `120` | 每个登录/验证等待窗口的秒数（15–600） |
 
 查看全部配置：
 
