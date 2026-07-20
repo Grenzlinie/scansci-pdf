@@ -1064,6 +1064,46 @@ def _batch_institutional_phase(
         _save_progress(batch_id, doi, result)
 
 
+def _batch_ezproxy_phase(
+    failed_dois: list[str],
+    output_dir: Path,
+    config: dict[str, Any],
+    batch_id: str,
+    results_map: dict[str, dict[str, Any]],
+) -> None:
+    """Retry failed free-source downloads through one interactive EZProxy session.
+
+    EZProxy navigation owns a visible browser context, so retries intentionally
+    run sequentially after parallel free-source probing has completed.
+    """
+    if not config.get("ezproxy_enabled") or not config.get("ezproxy_login_url"):
+        for doi in failed_dois:
+            result = fail(
+                doi,
+                "EZProxy is not configured",
+                error_type="configuration",
+                action="configure ezproxy_enabled and ezproxy_login_url",
+            )
+            results_map[doi] = result
+            _save_progress(batch_id, doi, result)
+        return
+
+    log.info(f"Batch {batch_id}: retrying {len(failed_dois)} remaining DOIs through EZProxy...")
+    for doi in failed_dois:
+        if results_map.get(doi, {}).get("success"):
+            continue
+        result = download(
+            doi,
+            output_dir,
+            scihub_enabled=True,
+            strategy="ezproxy_only",
+            rename=True,
+            ezproxy_interactive=True,
+        )
+        results_map[doi] = result
+        _save_progress(batch_id, doi, result)
+
+
 def batch_download(
     identifiers: list[str],
     output_dir: str | Path | None = None,
@@ -1071,11 +1111,16 @@ def batch_download(
     scihub_enabled: bool | None = None,
     use_tor: bool = False,
     use_vpnsci: bool = False,
+    use_ezproxy: bool = False,
     progress_callback: Any = None,
     batch_id: str | None = None,
     resume: bool = True,
 ) -> dict[str, Any]:
     config = load_config()
+    if use_ezproxy:
+        # This mode promises the full fast-source pass before EZProxy fallback,
+        # regardless of a previously saved per-user Sci-Hub preference.
+        scihub_enabled = True
     workers = config.get("batch_workers", 5)
 
     # Duplicate detection via DOI normalization
@@ -1187,7 +1232,15 @@ def batch_download(
             if elapsed < delay_between:
                 time.sleep(delay_between - elapsed)
             last_download_time[0] = time.time()
-        return download(ident, output_dir, scihub_enabled=scihub_enabled, use_tor=use_tor, use_vpnsci=use_vpnsci, _institutional=False)
+        return download(
+            ident,
+            output_dir,
+            scihub_enabled=scihub_enabled,
+            use_tor=use_tor,
+            use_vpnsci=use_vpnsci,
+            _institutional=False,
+            strategy="fastest" if use_ezproxy else None,
+        )
 
     results: list[dict[str, Any] | None] = [None] * total
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -1227,11 +1280,30 @@ def batch_download(
     failed_phase1 = [doi for doi, r in phase1_results.items() if r and not r.get("success")]
     if failed_phase1:
         log.info(f"Batch {batch_id}: Phase 1 failed for {len(failed_phase1)} DOIs, starting Phase 2...")
-        _batch_institutional_phase(failed_phase1, Path(config["output_dir"]) if not output_dir else Path(output_dir), config, batch_id, phase1_results)
-        # Update results list with Phase 2 outcomes from progress file
+        phase2_output_dir = Path(config["output_dir"]) if not output_dir else Path(output_dir)
+        if use_ezproxy:
+            _batch_ezproxy_phase(
+                failed_phase1,
+                phase2_output_dir,
+                config,
+                batch_id,
+                phase1_results,
+            )
+        else:
+            _batch_institutional_phase(
+                failed_phase1,
+                phase2_output_dir,
+                config,
+                batch_id,
+                phase1_results,
+            )
+        # Prefer in-memory Phase 2 outcomes. The progress file is a durable
+        # resume record, but it can be unavailable in embedders and tests.
         phase2_progress = _load_progress(batch_id)
         for i, ident in enumerate(pending_identifiers):
-            if ident in phase2_progress:
+            if ident in phase1_results:
+                results[i] = phase1_results[ident]
+            elif ident in phase2_progress:
                 results[i] = phase2_progress[ident]
 
     # Reload progress to include newly-saved invalid results

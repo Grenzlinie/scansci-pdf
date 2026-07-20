@@ -130,6 +130,7 @@ def scansci_pdf_batch_download(
     scihub_enabled: bool | None = None,
     use_tor: bool = False,
     use_vpnsci: bool = False,
+    use_ezproxy: bool = False,
     batch_id: str | None = None,
     resume: bool = True,
     ctx: Any = None,
@@ -142,6 +143,7 @@ def scansci_pdf_batch_download(
         scihub_enabled: Enable/disable Sci-Hub
         use_tor: Route Sci-Hub/LibGen through Tor
         use_vpnsci: Try WebVPN institutional proxy as last resort (requires prior login via scansci_pdf_vpnsci_login)
+        use_ezproxy: Try configured EZProxy after free and grey sources fail.
         batch_id: Unique ID for this batch (auto-generated if omitted). Used for resume support.
         resume: Skip items completed in a previous run (default true). Set false to re-download all.
     """
@@ -162,6 +164,7 @@ def scansci_pdf_batch_download(
     result = batch_download(
         identifiers, output_dir,
         scihub_enabled=scihub_enabled, use_tor=use_tor, use_vpnsci=use_vpnsci,
+        use_ezproxy=use_ezproxy,
         batch_id=batch_id, resume=resume,
         progress_callback=_progress_report,
     )

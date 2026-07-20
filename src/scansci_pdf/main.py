@@ -391,6 +391,11 @@ def batch_fetch_cmd(
     output: str = typer.Option(".", help="Output directory (default: current directory)"),
     format: str = typer.Option("json", help="Output format: json, text"),
     scihub: bool = typer.Option(False, "--scihub", help="Use Sci-Hub racing engine (includes grey sources) instead of institutional cascade"),
+    ezproxy: bool = typer.Option(
+        False,
+        "--ezproxy",
+        help="Try free and grey sources first, then use configured EZProxy for remaining DOIs.",
+    ),
 ) -> None:
     """Batch fetch papers. Default: institutional cascade. Use --scihub for grey-source racing."""
     import json as _json
@@ -407,6 +412,23 @@ def batch_fetch_cmd(
     # Auto-detect: if download_strategy is grey/scihub-oriented, switch to racing engine
     _cfg = _load_config()
     _strategy = _cfg.get("download_strategy", "fastest")
+
+    if ezproxy:
+        from .sources import batch_download
+
+        results = batch_download(
+            dois,
+            output_dir=output,
+            scihub_enabled=True,
+            use_ezproxy=True,
+        )
+        _verify_batch_results(results, output)
+        if format == "json":
+            out_path = Path(output) / "batch_results.json"
+            out_path.write_text(_json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"\n  Results saved to: {out_path}")
+        return
+
     _auto_scihub = scihub or _strategy in ("scihub_only", "grey_only", "scihub_first")
     if not scihub and _auto_scihub:
         print(f"  Auto-switching to Sci-Hub racing engine (download_strategy={_strategy})")
