@@ -233,6 +233,7 @@ def open_login_browser(
     auto_import: bool = True,
     keep_alive: bool = False,
     publisher: str = "",
+    manual_confirm: bool = False,
 ) -> bool | tuple[bool, Any, Any, Any]:
     """Open a visible stealth browser for interactive login.
 
@@ -245,6 +246,8 @@ def open_login_browser(
         auto_import: Whether to auto-import cookies into CloakBrowser.
         keep_alive: If True, return (True, context, page) without closing browser.
         publisher: Publisher name for remote assist display.
+        manual_confirm: Wait for Enter and save the whole browser context instead
+            of relying on URL-based login detection.
 
     Returns:
         True if login succeeded, or (True, context, page) if keep_alive.
@@ -277,13 +280,66 @@ def open_login_browser(
             log.info(f"   [browser] Page load warning: {exc}")
             print("  页面加载超时，但仍可手动登录。")
 
+        if manual_confirm:
+            print("  登录完成后，请返回此终端并按 Enter 保存 Cookie。")
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                if remote:
+                    remote.stop()
+                browser.close()
+                return (False, None, None, None) if keep_alive else False
+
+            cookies = context.cookies()
+            if not cookies:
+                print("  未检测到 Cookie；请确认登录已完成。")
+                if remote:
+                    remote.stop()
+                browser.close()
+                return (False, None, None, None) if keep_alive else False
+
+            _save_cookies_json(cookies, cookie_file)
+            netscape_path = cookie_file.with_suffix(".txt")
+            _save_cookies_netscape(cookies, netscape_path)
+            log.info(f"   [browser] Login manually confirmed. Saved {len(cookies)} cookies.")
+            print(f"  登录状态已确认！Cookie 已保存至 {cookie_file}")
+            if auto_import:
+                _import_to_browser(netscape_path, config)
+            if remote:
+                remote.stop()
+            if keep_alive:
+                return True, context, page
+            browser.close()
+            return True
+
         elapsed = 0
         while elapsed < max_wait:
             time.sleep(3)
             elapsed += 3
 
             try:
-                current_url = page.url
+                # Some institutional login flows finish in a new tab instead
+                # of navigating the page that initiated authentication. Check
+                # every live HTTP(S) page, newest first, so redirects such as
+                # HKU EZproxy can be detected without asking the user to move
+                # the successful URL back into the original tab.
+                context_pages = list(context.pages)
+                if page not in context_pages:
+                    context_pages.insert(0, page)
+
+                live_pages: list[tuple[Any, str]] = []
+                for candidate in reversed(context_pages):
+                    try:
+                        candidate_url = candidate.url
+                    except Exception:
+                        continue
+                    if candidate_url.startswith(("http://", "https://")):
+                        live_pages.append((candidate, candidate_url))
+
+                if not live_pages:
+                    raise RuntimeError("No live browser pages")
+
+                current_url = live_pages[0][1]
                 if remote:
                     remote.update_url(current_url)
             except Exception:
@@ -297,7 +353,17 @@ def open_login_browser(
                         pass
                 return (False, None, None, None) if keep_alive else False
 
-            if detect_login and detect_login(context, page):
+            successful_page = None
+            if detect_login:
+                for candidate, _candidate_url in live_pages:
+                    try:
+                        if detect_login(context, candidate):
+                            successful_page = candidate
+                            break
+                    except Exception:
+                        continue
+
+            if successful_page is not None:
                 cookies = context.cookies()
                 _save_cookies_json(cookies, cookie_file)
                 netscape_path = cookie_file.with_suffix(".txt")
@@ -309,7 +375,7 @@ def open_login_browser(
                 if remote:
                     remote.stop()
                 if keep_alive:
-                    return True, context, page
+                    return True, context, successful_page
                 browser.close()
                 return True
 
@@ -387,7 +453,7 @@ def carsi_login(publisher: str, config: dict[str, Any], *, login_url: str, domai
     )
 
 
-def ezproxy_login(config: dict[str, Any]) -> bool:
+def ezproxy_login(config: dict[str, Any], *, manual_confirm: bool = False) -> bool:
     """Login to EZProxy via stealth browser."""
     base = config.get("ezproxy_login_url", "")
     if not base:
@@ -413,4 +479,5 @@ def ezproxy_login(config: dict[str, Any]) -> bool:
         cookie_file=cookie_file,
         detect_login=_detect,
         max_wait=180,
+        manual_confirm=manual_confirm,
     )
