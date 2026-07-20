@@ -37,15 +37,20 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[cloakbrowser]" pypdf
 
+      - name: Define credential paths
+        shell: bash
+        run: |
+          echo "HKU_LOCAL_COOKIE=${HOME}/.scansci-pdf/cache/ezproxy_cookies.json" >> "$GITHUB_ENV"
+          echo "HKU_RUNTIME_COOKIE=${SCANSCI_PDF_DATA_DIR}/cache/ezproxy_cookies.json" >> "$GITHUB_ENV"
+
       - name: Load runner-local HKU session
         shell: bash
         run: |
           set -euo pipefail
-          HKU_LOCAL_COOKIE="${HOME}/.scansci-pdf/cache/ezproxy_cookies.json"
           test -f "$HKU_LOCAL_COOKIE"
           test "$(stat -f '%Lp' "$HKU_LOCAL_COOKIE")" = "600"
           mkdir -p "$SCANSCI_PDF_DATA_DIR/cache" "$LIVE_OUTPUT"
-          install -m 600 "$HKU_LOCAL_COOKIE" "$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
+          install -m 600 "$HKU_LOCAL_COOKIE" "$HKU_RUNTIME_COOKIE"
           scansci-pdf config-cmd ezproxy_enabled true
           scansci-pdf config-cmd ezproxy_login_url 'https://eproxy.lib.hku.hk/login?url={url}'
 
@@ -78,15 +83,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          REFRESHED_COOKIE="$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
-          HKU_LOCAL_COOKIE="${HOME}/.scansci-pdf/cache/ezproxy_cookies.json"
-          if test -s "$REFRESHED_COOKIE"; then
-            install -m 600 "$REFRESHED_COOKIE" "$HKU_LOCAL_COOKIE"
+          if test -s "$HKU_RUNTIME_COOKIE"; then
+            install -m 600 "$HKU_RUNTIME_COOKIE" "$HKU_LOCAL_COOKIE"
           fi
 
       - name: Remove credentials and downloaded file
         if: always()
         shell: bash
         run: |
-          rm -f "$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
+          rm -f "$HKU_RUNTIME_COOKIE"
           rm -rf "$LIVE_OUTPUT"

@@ -7,13 +7,15 @@ class FakePublisherPage:
         self._html = html
         self._candidates = candidates or []
         self.clicked = False
+        self.clicked_index = None
 
     def content(self) -> str:
         return self._html
 
-    def evaluate(self, script: str):
+    def evaluate(self, script: str, *args):
         if "data-scansci-pdf-clicked" in script:
             self.clicked = True
+            self.clicked_index = args[0]
             return True
         return self._candidates
 
@@ -75,8 +77,18 @@ def test_resolver_operates_ranked_pdf_control_when_no_url_is_exposed():
     page = FakePublisherPage(
         "https://pubs-acs-org.eproxy.lib.hku.hk/doi/10.1021/example",
         "<html></html>",
-        [{"text": "Download PDF", "href": "", "aria": "Download PDF"}],
+        [
+            {"text": "Purchase PDF", "href": "", "controlIndex": 0},
+            {"text": "Supporting information PDF", "href": "", "controlIndex": 1},
+            {
+                "text": "Download PDF",
+                "href": "",
+                "aria": "Download PDF",
+                "controlIndex": 2,
+            },
+        ],
     )
 
     assert PublisherPdfResolver().resolve(page) == ""
     assert page.clicked is True
+    assert page.clicked_index == 2

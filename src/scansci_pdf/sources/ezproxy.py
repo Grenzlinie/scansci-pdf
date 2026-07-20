@@ -143,6 +143,23 @@ def _discover_pdf_link(page: Any) -> str:
     return _PUBLISHER_PDF_RESOLVER.resolve(page)
 
 
+def _latest_context_page(page: Any) -> Any:
+    """Follow publisher controls that open a new tab in the same context."""
+    try:
+        pages = list(page.context.pages)
+    except Exception:
+        return page
+    for candidate in reversed(pages):
+        try:
+            if not candidate.is_closed():
+                return candidate
+        except AttributeError:
+            return candidate
+        except Exception:
+            continue
+    return page
+
+
 def _navigate(page: Any, url: str, *, wait_until: str) -> None:
     """Start navigation while treating a browser timeout as recoverable."""
     try:
@@ -189,6 +206,7 @@ def _wait_for_pdf_link(
     login_logged = False
     while True:
         for _ in range(max(1, timeout // 2)):
+            page = _latest_context_page(page)
             if _captured_pdf(captured_pdf):
                 return page.url
 
@@ -222,6 +240,7 @@ def _wait_for_pdf_bytes(
     challenge_logged = False
     while True:
         for _ in range(max(1, timeout // 2)):
+            page = _latest_context_page(page)
             captured = _captured_pdf(captured_pdf)
             if captured:
                 return captured
@@ -383,6 +402,10 @@ def try_ezproxy(doi: str, output_path: Path, config: dict[str, Any]) -> dict[str
         context = browser.new_context()
         page = context.new_page()
         page.on("response", _on_response)
+        try:
+            context.on("page", lambda opened_page: opened_page.on("response", _on_response))
+        except Exception:
+            pass
 
         # Load saved cookies if available
         if cookie_file.exists():

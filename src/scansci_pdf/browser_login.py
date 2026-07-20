@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
 import atexit
 from pathlib import Path
@@ -17,6 +19,31 @@ except ImportError:
 from .log import get_logger
 
 log = get_logger()
+
+
+def _atomic_write_private(path: Path, content: str) -> None:
+    """Atomically write credential-bearing browser state with mode 0600."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temp_path = Path(temp_name)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temp_path.replace(path)
+        os.chmod(path, 0o600)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 class PersistentBrowser:
@@ -133,18 +160,24 @@ class PersistentBrowser:
 
             state = {"cookies": cookies, "localStorage": localStorage}
             state_file = cache_dir / "browser_state.json"
-            state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+            _atomic_write_private(
+                state_file,
+                json.dumps(state, indent=2, ensure_ascii=False),
+            )
 
             cookie_file = cache_dir / "instsci-cookies.json"
             cookie_data = [
                 {"name": c["name"], "value": c["value"], "domain": c.get("domain", ""), "path": c.get("path", "/")}
                 for c in cookies
             ]
-            cookie_file.write_text(json.dumps(cookie_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            _atomic_write_private(
+                cookie_file,
+                json.dumps(cookie_data, indent=2, ensure_ascii=False),
+            )
 
             netscape_file = cache_dir / "instsci-cookies.txt"
             from .browser_cookies import cookies_to_netscape
-            netscape_file.write_text(cookies_to_netscape(cookies), encoding="utf-8")
+            _atomic_write_private(netscape_file, cookies_to_netscape(cookies))
 
             self._cookies_saved = True
             log.info(f"   [browser] Saved {len(cookies)} cookies + {len(localStorage)} localStorage origins")
@@ -170,7 +203,8 @@ class PersistentBrowser:
 
 # Module-level singleton
 _browser = PersistentBrowser()
-atexit.register(_browser.close)
+# Logging streams may already be closed when atexit handlers run.
+atexit.register(_browser._cleanup)
 
 
 def get_browser(config: dict[str, Any] | None = None):
@@ -195,17 +229,16 @@ def _save_cookies_json(cookies: list[dict[str, Any]], cookie_file: Path) -> None
         {"name": c["name"], "value": c["value"], "domain": c.get("domain", ""), "path": c.get("path", "/")}
         for c in cookies
     ]
-    cookie_file.parent.mkdir(parents=True, exist_ok=True)
-    cookie_file.write_text(
+    _atomic_write_private(
+        cookie_file,
         json.dumps(cookie_data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
     )
 
 
 def _save_cookies_netscape(cookies: list[dict[str, Any]], cookie_file: Path) -> None:
     """Save cookies in Netscape format (CloakBrowser import compatible)."""
     from .browser_cookies import cookies_to_netscape
-    cookie_file.write_text(cookies_to_netscape(cookies), encoding="utf-8")
+    _atomic_write_private(cookie_file, cookies_to_netscape(cookies))
 
 
 def _import_to_browser(cookie_file: Path, config: dict[str, Any]) -> int:

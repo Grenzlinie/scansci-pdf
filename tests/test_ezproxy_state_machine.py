@@ -206,6 +206,57 @@ class TtyInput:
         return True
 
 
+class PopupPage:
+    def __init__(self, context) -> None:
+        self.context = context
+        self.url = "https://pubs-acs-org.eproxy.lib.hku.hk/doi/10.1021/example/pdf"
+
+    @staticmethod
+    def title() -> str:
+        return "PDF download"
+
+    @staticmethod
+    def content() -> str:
+        return '<meta name="citation_pdf_url" content="/doi/pdf/10.1021/example">'
+
+    @staticmethod
+    def evaluate(_script, *_args):
+        return []
+
+
+class PopupOpeningPage(PopupPage):
+    def __init__(self) -> None:
+        self.context = types.SimpleNamespace(pages=[])
+        self.context.pages.append(self)
+        self.url = "https://pubs-acs-org.eproxy.lib.hku.hk/doi/10.1021/example"
+        self.clicked = False
+
+    @staticmethod
+    def content() -> str:
+        return "<html><button>Download PDF</button></html>"
+
+    def evaluate(self, script, *_args):
+        if "data-scansci-pdf-clicked" in script:
+            self.clicked = True
+            self.context.pages.append(PopupPage(self.context))
+            return True
+        return [{"text": "Download PDF", "href": "", "controlIndex": 0}]
+
+
+def test_pdf_control_popup_becomes_the_active_page(monkeypatch):
+    page = PopupOpeningPage()
+    monkeypatch.setattr(ezproxy.time, "sleep", lambda _seconds: None)
+
+    result = ezproxy._wait_for_pdf_link(
+        page,
+        [],
+        {"ezproxy_challenge_timeout": 4, "_ezproxy_interactive": False},
+    )
+
+    assert page.clicked is True
+    assert result == "https://pubs-acs-org.eproxy.lib.hku.hk/doi/pdf/10.1021/example"
+
+
 def test_interactive_timeout_can_continue_then_skip(monkeypatch):
     answers = iter(["", "skip"])
     prompts = []
