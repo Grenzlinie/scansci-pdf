@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -20,14 +19,11 @@ import requests
 
 from ..log import get_logger
 from ..pdf_utils import success
-from .ezproxy_resolver import (
-    DOM_PDF_CANDIDATES_JS,
-    DOM_PDF_CONTROL_CLICK_JS,
-    discover_pdf_url_from_candidates,
-    discover_pdf_url_from_html,
-)
+from ..private_files import atomic_write_private
+from ..publisher_pdf_resolver import PublisherPdfResolver
 
 log = get_logger()
+_PUBLISHER_PDF_RESOLVER = PublisherPdfResolver()
 
 _CHALLENGE_MARKERS = (
     "processing verification",
@@ -144,24 +140,24 @@ def _continue_after_timeout(config: dict[str, Any], phase: str) -> bool:
 
 
 def _discover_pdf_link(page: Any) -> str:
-    url, _title, html = _page_snapshot(page)
-    discovered = discover_pdf_url_from_html(url, html)
-    if discovered:
-        return discovered
+    return _PUBLISHER_PDF_RESOLVER.resolve(page)
+
+
+def _latest_context_page(page: Any) -> Any:
+    """Follow publisher controls that open a new tab in the same context."""
     try:
-        candidates = page.evaluate(DOM_PDF_CANDIDATES_JS)
+        pages = list(page.context.pages)
     except Exception:
-        return ""
-    if isinstance(candidates, str) and candidates.startswith(("http://", "https://")):
-        return candidates
-    discovered = discover_pdf_url_from_candidates(url, candidates)
-    if discovered:
-        return discovered
-    try:
-        page.evaluate(DOM_PDF_CONTROL_CLICK_JS)
-    except Exception:
-        pass
-    return ""
+        return page
+    for candidate in reversed(pages):
+        try:
+            if not candidate.is_closed():
+                return candidate
+        except AttributeError:
+            return candidate
+        except Exception:
+            continue
+    return page
 
 
 def _navigate(page: Any, url: str, *, wait_until: str) -> None:
@@ -210,6 +206,7 @@ def _wait_for_pdf_link(
     login_logged = False
     while True:
         for _ in range(max(1, timeout // 2)):
+            page = _latest_context_page(page)
             if _captured_pdf(captured_pdf):
                 return page.url
 
@@ -243,6 +240,7 @@ def _wait_for_pdf_bytes(
     challenge_logged = False
     while True:
         for _ in range(max(1, timeout // 2)):
+            page = _latest_context_page(page)
             captured = _captured_pdf(captured_pdf)
             if captured:
                 return captured
@@ -270,12 +268,10 @@ def _save_context_cookies(context: Any, cookie_file: Path) -> None:
         cookies = context.cookies()
         if not cookies:
             return
-        cookie_file.parent.mkdir(parents=True, exist_ok=True)
-        temp_file = cookie_file.with_name(f".{cookie_file.name}.tmp")
-        temp_file.write_text(json.dumps(cookies, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(temp_file, 0o600)
-        temp_file.replace(cookie_file)
-        os.chmod(cookie_file, 0o600)
+        atomic_write_private(
+            cookie_file,
+            json.dumps(cookies, ensure_ascii=False, indent=2),
+        )
     except Exception as exc:
         log.info(f"   [EZProxy] Could not refresh cookie cache: {type(exc).__name__}")
 
@@ -404,6 +400,10 @@ def try_ezproxy(doi: str, output_path: Path, config: dict[str, Any]) -> dict[str
         context = browser.new_context()
         page = context.new_page()
         page.on("response", _on_response)
+        try:
+            context.on("page", lambda opened_page: opened_page.on("response", _on_response))
+        except Exception:
+            pass
 
         # Load saved cookies if available
         if cookie_file.exists():

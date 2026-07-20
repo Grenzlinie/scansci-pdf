@@ -1,9 +1,6 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -15,6 +12,8 @@ concurrency:
 
 jobs:
   publish:
+    if: vars.PYPI_PUBLISH_ENABLED == 'true'
+    environment: pypi
     runs-on: ubuntu-latest
     permissions:
       # contents: write + deployments: write are required by the
@@ -38,8 +37,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
-      - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Verify downstream release metadata
+        id: release
         run: |
           python - <<'PY'
           import os
@@ -47,15 +46,19 @@ jobs:
           import tomllib
 
           with open("pyproject.toml", "rb") as fp:
-              version = tomllib.load(fp)["project"]["version"]
+              metadata = tomllib.load(fp)
 
-          tag = os.environ["GITHUB_REF_NAME"]
-          expected = f"v{version}"
-          if tag != expected:
-              sys.exit(
-                  f"Tag {tag!r} does not match pyproject.toml version {version!r}. "
-                  f"Use tag {expected!r}."
-              )
+          project = metadata["project"]
+          policy = metadata["tool"]["scansci_pdf_hku"]["release"]
+          if project["name"] != policy["distribution_name"]:
+              sys.exit("Downstream distribution metadata has not been activated")
+          if project["version"] != policy["next_version"]:
+              sys.exit("Project version does not match the approved downstream release")
+          if not policy["publishing_enabled"]:
+              sys.exit("pyproject publication gate is disabled")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"distribution_name={project['name']}\n")
+              output.write(f"version={project['version']}\n")
           PY
 
       - name: Verify compiled extensions exist
@@ -73,23 +76,23 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: scansci-pdf-dist
+          name: ${{ steps.release.outputs.distribution_name }}-dist
           path: dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Record GitHub Deployment
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISTRIBUTION_NAME: ${{ steps.release.outputs.distribution_name }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-          # Create a deployment for the 'pypi' environment pointing at this tag.
+          REF="${GITHUB_SHA}"
+          # Create a deployment for the 'pypi' environment at the dispatched commit.
           # auto_merge:false avoids a 409 when master has moved past the tag.
-          DEPLOYMENT_ID=$(echo "{\"ref\":\"$TAG\",\"environment\":\"pypi\",\"description\":\"Publish scansci-pdf $VERSION to PyPI\",\"required_contexts\":[],\"auto_merge\":false}" \
+          DEPLOYMENT_ID=$(echo "{\"ref\":\"$REF\",\"environment\":\"pypi\",\"description\":\"Publish $DISTRIBUTION_NAME $VERSION to PyPI\",\"required_contexts\":[],\"auto_merge\":false}" \
             | gh api --method POST \
               repos/${{ github.repository }}/deployments \
               --input - \
@@ -105,8 +108,8 @@ jobs:
             repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses \
             -f state="success" \
             -f environment="pypi" \
-            -f environment_url="https://pypi.org/project/scansci-pdf/$VERSION/" \
-            -f description="scansci-pdf $VERSION is live on PyPI" \
+            -f environment_url="https://pypi.org/project/$DISTRIBUTION_NAME/$VERSION/" \
+            -f description="$DISTRIBUTION_NAME $VERSION is live on PyPI" \
             --silent
 
-          echo "Recorded deployment $DEPLOYMENT_ID for $TAG"
+          echo "Recorded deployment $DEPLOYMENT_ID for $REF"

@@ -41,3 +41,10 @@ scansci_pdf = ["data/*.json", "data/*.dat", "_core/*.pyd", "_core/*.so"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.scansci_pdf_hku.release]
+distribution_name = "scansci-pdf-hku"
+version_scheme = "{upstream}.post{downstream}"
+upstream_version = "1.9.0"
+next_version = "1.9.0.post1"
+publishing_enabled = false

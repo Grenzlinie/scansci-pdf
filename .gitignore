@@ -13,6 +13,8 @@ Thumbs.db
 .env
 .venv/
 .scansci-pdf/
+ezproxy_cookies.json
+hku-live-output/
 piao_top30.json
 piao_top30_dois.txt
 webvpn.dat

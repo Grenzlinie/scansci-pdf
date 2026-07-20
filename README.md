@@ -203,6 +203,27 @@ Chromium 会保持打开。交互式终端达到等待窗口后可直接按 Ente
 `skip` 退出；MCP 和其他非交互调用达到超时后会失败，不会永久占用任务。
 机器人验证仍可能需要用户在窗口中手动完成。
 
+### 独立维护与发行
+
+这个仓库以 `Grenzlinie/scansci-pdf` 为独立维护线：日常开发和 PR 都以
+本仓库为目标，`Rimagination/scansci-pdf` 仅作为可选择同步的 `upstream`。
+维护者开始修改机构访问或出版社逻辑前，应先阅读 [维护上下文](CONTEXT.md)
+和 [架构决策记录](docs/adr/README.md)。
+
+短期安装渠道是 GitHub/uv：
+
+```bash
+uv tool install --force \
+  "scansci-pdf[cloakbrowser] @ git+https://github.com/Grenzlinie/scansci-pdf.git@master"
+```
+
+未来独立 PyPI distribution 已决定使用 `scansci-pdf-hku`，版本采用
+`上游版本.postN`；首次计划版本为 `1.9.0.post1`。发布目前保持关闭，直到
+包元数据、Trusted Publishing 和仓库发布门禁在单独 PR 中启用。由于上下游
+distribution 共享 `scansci_pdf` import 和 `scansci-pdf` 命令，不应安装在同一
+Python 环境中。完整决策见
+[ADR-0004](docs/adr/0004-release-identity-and-versioning.md)。
+
 ---
 
 ## 在 AI Agent / MCP 中使用
