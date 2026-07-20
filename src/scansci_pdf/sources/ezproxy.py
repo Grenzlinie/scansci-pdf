@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -20,6 +19,7 @@ import requests
 
 from ..log import get_logger
 from ..pdf_utils import success
+from ..private_files import atomic_write_private
 from ..publisher_pdf_resolver import PublisherPdfResolver
 
 log = get_logger()
@@ -268,12 +268,10 @@ def _save_context_cookies(context: Any, cookie_file: Path) -> None:
         cookies = context.cookies()
         if not cookies:
             return
-        cookie_file.parent.mkdir(parents=True, exist_ok=True)
-        temp_file = cookie_file.with_name(f".{cookie_file.name}.tmp")
-        temp_file.write_text(json.dumps(cookies, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(temp_file, 0o600)
-        temp_file.replace(cookie_file)
-        os.chmod(cookie_file, 0o600)
+        atomic_write_private(
+            cookie_file,
+            json.dumps(cookies, ensure_ascii=False, indent=2),
+        )
     except Exception as exc:
         log.info(f"   [EZProxy] Could not refresh cookie cache: {type(exc).__name__}")
 

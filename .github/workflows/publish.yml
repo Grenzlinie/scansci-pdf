@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           REF="${GITHUB_SHA}"
-          # Create a deployment for the 'pypi' environment pointing at this tag.
+          # Create a deployment for the 'pypi' environment at the dispatched commit.
           # auto_merge:false avoids a 409 when master has moved past the tag.
           DEPLOYMENT_ID=$(echo "{\"ref\":\"$REF\",\"environment\":\"pypi\",\"description\":\"Publish $DISTRIBUTION_NAME $VERSION to PyPI\",\"required_contexts\":[],\"auto_merge\":false}" \
             | gh api --method POST \
