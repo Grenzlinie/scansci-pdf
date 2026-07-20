@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import stat
 import sys
 import types
@@ -146,7 +147,8 @@ def test_slow_article_uses_in_page_fetch_and_refreshes_cookie_cache(monkeypatch,
     assert output_path.read_bytes() == PDF_BYTES
     assert browser.context.loaded_cookies[0]["value"] == "cached-cookie"
     assert json.loads(cookie_file.read_text(encoding="utf-8"))[0]["value"] == "refreshed-cookie"
-    assert stat.S_IMODE(cookie_file.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(cookie_file.stat().st_mode) == 0o600
     assert browser.closed is True
 
 

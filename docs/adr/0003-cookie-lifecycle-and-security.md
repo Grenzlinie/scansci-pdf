@@ -13,7 +13,10 @@ temporarily grant access beyond the user's machine.
 
 The browser loads Cookies from the configured local cache before navigation
 and refreshes them after authentication or download. Writes use a temporary
-file followed by an atomic replace, and the resulting file mode is `0600`.
+file followed by an atomic replace. On POSIX systems, the resulting file mode
+is `0600`. Windows access control is provided by the local account's ACLs;
+the POSIX mode bits reported by `stat` are not an access-control guarantee
+there and are deliberately not used as a Windows security check.
 
 Cookie values, passwords, signed query strings, and authentication tokens are
 prohibited from logs, Git history, CI inputs, artifacts, screenshots, and

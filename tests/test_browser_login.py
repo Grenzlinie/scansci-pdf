@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 
 from scansci_pdf import browser_login
@@ -95,7 +96,8 @@ def test_open_login_browser_allows_manual_confirmation(monkeypatch, tmp_path):
 
     assert result is True
     assert json.loads(cookie_file.read_text(encoding="utf-8"))[0]["name"] == "session"
-    assert stat.S_IMODE(cookie_file.stat().st_mode) == 0o600
-    assert stat.S_IMODE(cookie_file.with_suffix(".txt").stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(cookie_file.stat().st_mode) == 0o600
+        assert stat.S_IMODE(cookie_file.with_suffix(".txt").stat().st_mode) == 0o600
     assert not list(tmp_path.glob(".*.tmp"))
     assert browser.closed is True
