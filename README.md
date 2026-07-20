@@ -203,6 +203,9 @@ Chromium 会保持打开。交互式终端达到等待窗口后可直接按 Ente
 `skip` 退出；MCP 和其他非交互调用达到超时后会失败，不会永久占用任务。
 机器人验证仍可能需要用户在窗口中手动完成。
 
+HKU 学生可查看从安装、登录到批量下载的完整操作说明：
+[HKU EZProxy 学生指南](docs/hku-ezproxy-student-guide.md)。
+
 ### 独立维护与发行
 
 这个仓库以 `Grenzlinie/scansci-pdf` 为独立维护线：日常开发和 PR 都以
