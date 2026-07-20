@@ -51,6 +51,17 @@ class SlowArticlePage:
         self.ticks += 1
 
 
+class NavigationTimeoutPage(SlowArticlePage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.goto_calls = 0
+
+    def goto(self, url, **_kwargs) -> None:
+        super().goto(url)
+        self.goto_calls += 1
+        raise TimeoutError("navigation is still progressing")
+
+
 class FakeContext:
     def __init__(self, page: SlowArticlePage) -> None:
         self.page = page
@@ -137,6 +148,40 @@ def test_slow_article_uses_in_page_fetch_and_refreshes_cookie_cache(monkeypatch,
     assert json.loads(cookie_file.read_text(encoding="utf-8"))[0]["value"] == "refreshed-cookie"
     assert stat.S_IMODE(cookie_file.stat().st_mode) == 0o600
     assert browser.closed is True
+
+
+def test_navigation_timeouts_continue_into_article_and_pdf_polling(monkeypatch, tmp_path):
+    page = NavigationTimeoutPage()
+    browser = FakeBrowser(page)
+    monkeypatch.setitem(
+        sys.modules,
+        "cloakbrowser",
+        types.SimpleNamespace(launch=lambda **_kwargs: browser),
+    )
+    monkeypatch.setattr(
+        ezproxy.requests,
+        "head",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            url="https://link.springer.com/article/example"
+        ),
+    )
+    monkeypatch.setattr(ezproxy.time, "sleep", lambda _seconds: page.tick())
+
+    output_path = tmp_path / "paper.pdf"
+    result = ezproxy.try_ezproxy(
+        "10.1007/example",
+        output_path,
+        {
+            "ezproxy_enabled": True,
+            "ezproxy_login_url": "https://proxy.example.edu/login?url={url}",
+            "cache_dir": str(tmp_path / "cache"),
+            "ezproxy_challenge_timeout": 15,
+        },
+    )
+
+    assert result is not None and result["success"] is True
+    assert page.goto_calls == 2
+    assert output_path.read_bytes() == PDF_BYTES
 
 
 class BlankPage:

@@ -83,6 +83,24 @@ def test_get_ezproxy_only_flag_maps_to_strategy(monkeypatch, tmp_path):
     assert calls[0][2]["ezproxy_interactive"] is True
 
 
+def test_get_normal_strategy_also_allows_interactive_ezproxy_wait(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(
+        sources,
+        "download",
+        lambda identifier, output, **kwargs: calls.append((identifier, output, kwargs))
+        or {"success": True, "file": str(tmp_path / "paper.pdf"), "source": "OpenAlex"},
+    )
+
+    result = CliRunner().invoke(
+        main.app,
+        ["get", "10.1234/example", "--output", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][2]["ezproxy_interactive"] is True
+
+
 def test_get_rejects_ezproxy_only_with_other_strategy(monkeypatch):
     monkeypatch.setattr(
         sources,
@@ -99,3 +117,21 @@ def test_get_rejects_ezproxy_only_with_other_strategy(monkeypatch):
 
     assert result.exit_code != 0
     assert "cannot be combined" in result.output.lower()
+
+
+def test_get_prints_ezproxy_failure_reason(monkeypatch):
+    monkeypatch.setattr(
+        sources,
+        "download",
+        lambda *_args, **_kwargs: {
+            "success": False,
+            "reason": "EZProxy download failed or timed out",
+        },
+    )
+
+    result = CliRunner().invoke(
+        main.app,
+        ["get", "10.1234/example", "--ezproxy-only"],
+    )
+
+    assert "FAILED: EZProxy download failed or timed out" in result.output

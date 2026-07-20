@@ -37,6 +37,39 @@ DOM_PDF_CANDIDATES_JS = r"""
   .filter(item => /pdf|download|full text|read/i.test(Object.values(item).join(' ')))
 """.strip()
 
+DOM_PDF_CONTROL_CLICK_JS = r"""
+() => {
+  const controls = Array.from(document.querySelectorAll("a[href], button, [role='button']"));
+  const ranked = controls
+    .filter(el => !el.hasAttribute('data-scansci-pdf-clicked'))
+    .map(el => {
+      const text = [
+        el.innerText || el.textContent || '',
+        el.getAttribute('aria-label') || '',
+        el.getAttribute('title') || '',
+        el.id || '',
+        typeof el.className === 'string' ? el.className : ''
+      ].join(' ').replace(/\s+/g, ' ').trim();
+      let score = 99;
+      if (/download pdf/i.test(text)) score = 0;
+      else if (/open pdf|view pdf/i.test(text)) score = 1;
+      else if (/full text.*pdf|pdf.*full text/i.test(text)) score = 2;
+      else if (/pdf/i.test(text)) score = 3;
+      if (/supporting|supplement|appendix/i.test(text)) score += 50;
+      if (/purchase|buy now|add to cart/i.test(text)) score += 100;
+      return {el, score};
+    })
+    .filter(item => item.score < 50)
+    .sort((left, right) => left.score - right.score);
+  if (!ranked.length) return false;
+  const control = ranked[0].el;
+  control.setAttribute('data-scansci-pdf-clicked', 'true');
+  if (control.tagName === 'A') control.setAttribute('target', '_self');
+  control.click();
+  return true;
+}
+""".strip()
+
 
 def _publisher(article_url: str) -> str:
     host = urlparse(article_url).netloc.lower()

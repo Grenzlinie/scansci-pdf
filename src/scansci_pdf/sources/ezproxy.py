@@ -22,6 +22,7 @@ from ..log import get_logger
 from ..pdf_utils import success
 from .ezproxy_resolver import (
     DOM_PDF_CANDIDATES_JS,
+    DOM_PDF_CONTROL_CLICK_JS,
     discover_pdf_url_from_candidates,
     discover_pdf_url_from_html,
 )
@@ -153,7 +154,28 @@ def _discover_pdf_link(page: Any) -> str:
         return ""
     if isinstance(candidates, str) and candidates.startswith(("http://", "https://")):
         return candidates
-    return discover_pdf_url_from_candidates(url, candidates)
+    discovered = discover_pdf_url_from_candidates(url, candidates)
+    if discovered:
+        return discovered
+    try:
+        page.evaluate(DOM_PDF_CONTROL_CLICK_JS)
+    except Exception:
+        pass
+    return ""
+
+
+def _navigate(page: Any, url: str, *, wait_until: str) -> None:
+    """Start navigation while treating a browser timeout as recoverable."""
+    try:
+        page.goto(url, wait_until=wait_until, timeout=30000)
+    except Exception as exc:
+        if isinstance(exc, TimeoutError) or type(exc).__name__ == "TimeoutError":
+            log.info(
+                "   [EZProxy] Navigation is still progressing; "
+                "continuing to watch the open browser..."
+            )
+            return
+        raise
 
 
 def _captured_pdf(captured_pdf: list[bytes]) -> bytes | None:
@@ -393,14 +415,14 @@ def try_ezproxy(doi: str, output_path: Path, config: dict[str, Any]) -> dict[str
                 log.info(f"   [EZProxy] Cookie cache could not be loaded: {type(exc).__name__}")
 
         # Navigate to EZProxy URL
-        page.goto(ezproxy_url, wait_until="domcontentloaded", timeout=30000)
+        _navigate(page, ezproxy_url, wait_until="domcontentloaded")
         pdf_link = _wait_for_pdf_link(page, captured_pdf, config)
 
         pdf_bytes = _captured_pdf(captured_pdf)
         if not pdf_bytes and pdf_link:
             log.info(f"   [EZProxy] Found PDF entry: {_redacted_url(pdf_link)}")
             captured_pdf.clear()
-            page.goto(pdf_link, wait_until="commit", timeout=30000)
+            _navigate(page, pdf_link, wait_until="commit")
             pdf_bytes = _wait_for_pdf_bytes(page, captured_pdf, config)
 
         if pdf_bytes:

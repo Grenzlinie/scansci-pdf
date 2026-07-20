@@ -145,13 +145,14 @@ def get_paper(
         scihub_enabled=True, use_tor=True, use_vpnsci=True,
         bibtex=not no_bibtex,
         strategy=effective_strategy,
-        ezproxy_interactive=effective_strategy == "ezproxy_only",
+        ezproxy_interactive=True,
     )
     if result.get("success"):
         print(f"  OK: {result.get('file', '')}")
         print(f"  Source: {result.get('source', '?')}")
     else:
-        print(f"  FAILED: {result.get('error', 'unknown')}")
+        failure_message = result.get("error") or result.get("reason") or "unknown"
+        print(f"  FAILED: {failure_message}")
         hint = result.get('agent_hint', '')
         if hint:
             print(f"  Hint: {hint}")

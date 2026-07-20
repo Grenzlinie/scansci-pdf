@@ -1,4 +1,5 @@
 from scansci_pdf.sources.ezproxy_resolver import (
+    DOM_PDF_CONTROL_CLICK_JS,
     discover_pdf_url_from_candidates,
     discover_pdf_url_from_html,
 )
@@ -44,3 +45,9 @@ def test_acs_and_wiley_rank_dom_pdf_candidates():
         "https://onlinelibrary-wiley-com.eproxy.lib.hku.hk/doi/10.1002/example",
         [{"text": "Download PDF", "href": "/doi/pdfdirect/10.1002/example"}],
     ) == "https://onlinelibrary-wiley-com.eproxy.lib.hku.hk/doi/pdfdirect/10.1002/example"
+
+
+def test_dom_control_click_script_clicks_ranked_pdf_buttons():
+    assert "data-scansci-pdf-clicked" in DOM_PDF_CONTROL_CLICK_JS
+    assert ".click()" in DOM_PDF_CONTROL_CLICK_JS
+    assert "supporting|supplement|appendix" in DOM_PDF_CONTROL_CLICK_JS
