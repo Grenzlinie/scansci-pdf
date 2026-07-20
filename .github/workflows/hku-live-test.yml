@@ -1,0 +1,92 @@
+name: HKU EZProxy live acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      doi:
+        description: DOI to download through HKU EZProxy
+        required: true
+        default: 10.1016/j.actamat.2026.122519
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hku-live-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hku-live:
+    if: github.repository == 'Grenzlinie/scansci-pdf'
+    environment: hku-live
+    runs-on: [self-hosted, macOS, hku-ezproxy]
+    timeout-minutes: 30
+    env:
+      SCANSCI_PDF_DATA_DIR: ${{ runner.temp }}/scansci-hku-runtime
+      LIVE_OUTPUT: ${{ runner.temp }}/scansci-hku-live-output
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[cloakbrowser]" pypdf
+
+      - name: Load runner-local HKU session
+        shell: bash
+        run: |
+          set -euo pipefail
+          HKU_LOCAL_COOKIE="${HOME}/.scansci-pdf/cache/ezproxy_cookies.json"
+          test -f "$HKU_LOCAL_COOKIE"
+          test "$(stat -f '%Lp' "$HKU_LOCAL_COOKIE")" = "600"
+          mkdir -p "$SCANSCI_PDF_DATA_DIR/cache" "$LIVE_OUTPUT"
+          install -m 600 "$HKU_LOCAL_COOKIE" "$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
+          scansci-pdf config-cmd ezproxy_enabled true
+          scansci-pdf config-cmd ezproxy_login_url 'https://eproxy.lib.hku.hk/login?url={url}'
+
+      - name: Download through EZProxy only
+        run: scansci-pdf get "${{ inputs.doi }}" --ezproxy-only --no-bibtex --output "$LIVE_OUTPUT"
+
+      - name: Validate PDF without uploading it
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from pypdf import PdfReader
+
+          files = list(Path(os.environ["LIVE_OUTPUT"]).glob("*.pdf"))
+          if len(files) != 1:
+              raise SystemExit(f"Expected one PDF, found {len(files)}")
+          path = files[0]
+          if path.read_bytes()[:5] != b"%PDF-":
+              raise SystemExit("Downloaded file does not have a PDF header")
+          reader = PdfReader(path)
+          if len(reader.pages) < 1:
+              raise SystemExit("Downloaded PDF has no readable pages")
+          title = str((reader.metadata or {}).get("/Title", ""))
+          print(f"Validated PDF: bytes={path.stat().st_size}, pages={len(reader.pages)}, title={title!r}")
+          PY
+
+      - name: Refresh runner-local HKU session
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          REFRESHED_COOKIE="$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
+          HKU_LOCAL_COOKIE="${HOME}/.scansci-pdf/cache/ezproxy_cookies.json"
+          if test -s "$REFRESHED_COOKIE"; then
+            install -m 600 "$REFRESHED_COOKIE" "$HKU_LOCAL_COOKIE"
+          fi
+
+      - name: Remove credentials and downloaded file
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$SCANSCI_PDF_DATA_DIR/cache/ezproxy_cookies.json"
+          rm -rf "$LIVE_OUTPUT"

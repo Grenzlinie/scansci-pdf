@@ -20,14 +20,10 @@ import requests
 
 from ..log import get_logger
 from ..pdf_utils import success
-from .ezproxy_resolver import (
-    DOM_PDF_CANDIDATES_JS,
-    DOM_PDF_CONTROL_CLICK_JS,
-    discover_pdf_url_from_candidates,
-    discover_pdf_url_from_html,
-)
+from ..publisher_pdf_resolver import PublisherPdfResolver
 
 log = get_logger()
+_PUBLISHER_PDF_RESOLVER = PublisherPdfResolver()
 
 _CHALLENGE_MARKERS = (
     "processing verification",
@@ -144,24 +140,7 @@ def _continue_after_timeout(config: dict[str, Any], phase: str) -> bool:
 
 
 def _discover_pdf_link(page: Any) -> str:
-    url, _title, html = _page_snapshot(page)
-    discovered = discover_pdf_url_from_html(url, html)
-    if discovered:
-        return discovered
-    try:
-        candidates = page.evaluate(DOM_PDF_CANDIDATES_JS)
-    except Exception:
-        return ""
-    if isinstance(candidates, str) and candidates.startswith(("http://", "https://")):
-        return candidates
-    discovered = discover_pdf_url_from_candidates(url, candidates)
-    if discovered:
-        return discovered
-    try:
-        page.evaluate(DOM_PDF_CONTROL_CLICK_JS)
-    except Exception:
-        pass
-    return ""
+    return _PUBLISHER_PDF_RESOLVER.resolve(page)
 
 
 def _navigate(page: Any, url: str, *, wait_until: str) -> None:
